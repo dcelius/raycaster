@@ -30,3 +30,13 @@
 *.exe
 *.out
 *.app
+
+# input files
+*.ppm
+*.txt
+
+# binaries
+raycaster
+
+# .vscode
+.vscode/
