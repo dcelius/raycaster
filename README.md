@@ -27,8 +27,10 @@ mtlcolor   [r]  [g]  [b]
 ### A sphere definition (a 3D vector plus the radius)
 sphere   [cx]  [cy]  [cz]  [r]
 
+## Compilation
 The program can be compiled using:
 make all
 
+## Execution
 The program can be run using:
 ./raycaster [input file]
