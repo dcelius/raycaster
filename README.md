@@ -28,9 +28,9 @@ mtlcolor   [r]  [g]  [b]
 sphere   [cx]  [cy]  [cz]  [r]
 
 ## Compilation
-The program can be compiled using:
+The program can be compiled using: <br>
 make all
 
 ## Execution
-The program can be run using:
+The program can be run using: <br>
 ./raycaster [input file]
