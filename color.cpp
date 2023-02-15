@@ -4,19 +4,19 @@
 
 Color::Color(float newr, float newg, float newb, float newa) : r(newr), g(newg), b(newb), a(newa) {}
 
-float Color::getColorR(bool eightBit = false) {
+float Color::getColorR(bool eightBit) {
     if (eightBit) return r * 255;
     else return r;
 }
-float Color::getColorG(bool eightBit = false) {
+float Color::getColorG(bool eightBit) {
     if (eightBit) return g * 255;
     else return g;
 }
-float Color::getColorB(bool eightBit = false) {
+float Color::getColorB(bool eightBit) {
     if (eightBit) return b * 255;
     else return b;
 }
-float Color::getColorA(bool eightBit = false) {
+float Color::getColorA(bool eightBit) {
     if (eightBit) return a * 255;
     else return a;
 }
