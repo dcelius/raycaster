@@ -59,6 +59,21 @@ Vector3 Vector3::project(Vector3 other) {
     return other.scaleVector(scalar);
 }
 
+Vector3 Vector3::clampVector(float low, float high) {
+    float tempx, tempy, tempz;
+    (x < low) ? tempx = low : tempx = x;
+    (y < low) ? tempy = low : tempy = y;
+    (z < low) ? tempz = low : tempz = z;
+    (x > high) ? tempx = high : tempx = x;
+    (y > high) ? tempy = high : tempy = y;
+    (z > high) ? tempz = high : tempz = z;
+    return Vector3(tempx, tempy, tempz);
+}
+
+Vector3 Vector3::multiplyComponents(Vector3 other) {
+    return Vector3(x * other.x, y * other.y, z * other.z);
+}
+
 void Vector3::print() {
     std::cout << "(" << x << ", " << y << ", " << z << ")" << std::endl;
 }

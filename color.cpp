@@ -21,6 +21,10 @@ float Color::getColorA(bool eightBit) {
     else return a;
 }
 
+Vector3 Color::getAsVector() {
+    return Vector3(r, g, b);
+}
+
 void Color::setColor(float newr, float newg, float newb, float newa) {
     if (r != newr) r = newr;
     if (g != newg) g = newg;

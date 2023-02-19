@@ -23,3 +23,7 @@ void Sphere::print() {
     center.print();
     std::cout << " Color: " << m << std::endl;
 }
+
+Vector3 Sphere::getNormal(Vector3 other) {
+    return other.subtractVector(center).scaleVector(1/r).getNormalizedVector();
+}

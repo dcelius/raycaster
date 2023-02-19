@@ -20,11 +20,13 @@ class Vector3 {
         Vector3 getNormalizedVector();
         float magnitude();
         float dotProduct(Vector3 other);
+        Vector3 multiplyComponents(Vector3 other);
         Vector3 crossProduct(Vector3 other);
         Vector3 scaleVector(float scalar);
         Vector3 addVector(Vector3 other);
         Vector3 subtractVector(Vector3 other);
         Vector3 project(Vector3 other);
+        Vector3 clampVector(float low, float high);
         void print();
 };
 

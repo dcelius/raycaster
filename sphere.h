@@ -18,6 +18,7 @@ class Sphere {
         void setSphereMaterial(int newm);
         void setSphere(Vector3 newCenter, float newr);
         Vector3 getCenter();
+        Vector3 getNormal(Vector3 other);
         float getRadius();
         int getMaterial();
         void print();

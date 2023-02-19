@@ -2,9 +2,9 @@ CC := g++
 SRCS := $(wildcard *.cpp)
 OBJS := $(SRCS:%.cpp=%.o)
 
-all: ${OBJS} raycaster
+all: ${OBJS} raycaster1b
 
-raycaster: ${OBJS}
+raycaster1b: ${OBJS}
 	@echo "Checking.."
 	${CC} $^ -o $@
 

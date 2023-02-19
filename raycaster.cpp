@@ -15,39 +15,72 @@
 
 using namespace std;
 
+struct Material {
+    Color diffuse;
+    Color specular;
+    float ambientk;
+    float diffusek;
+    float speculark;
+    float falloff;
+};
+
+struct Light {
+    Vector3 vec;
+    int dirflag;
+    Color color;
+};
+
+struct rayInfo {
+    float distance;
+    int id;
+};
+
 class Raycaster {
     public:
         int width, height, hfov;
         Vector3 eye, viewDir, upDir;
         Color bkgColor;
-        vector<Color> materials;
+        vector<Material> materials;
         vector<Sphere> spheres;
+        vector<Light> lights;
         Vector3 w, u, v;
-        int d = 10;
+        int d = 100;
         float ratio, coordWidth, coordHeight;
         Vector3 normal, viewWidth, viewHeight;
         Vector3 pointUL, pointUR, pointLL, pointLR;
         Vector3 hoffset, voffset, choffset, cvoffset, fullOffset;
-        float a = 1.0f, b, c, discriminant, t, tt, min;
-        int minSphere;
 
-        Color traceRay(Ray viewRay) {
-            min = MAXFLOAT;
-            minSphere = -1;
+        // A wrapper that checks for an intersection, then calls shadeRay to apply material prop. and shadows
+        Color raycast(Ray viewRay) {
+            rayInfo rayGossip = traceRay(viewRay);
+            // If no intersection or intersection behind view, return background color
+            if (rayGossip.distance < 0) return bkgColor;
+            Vector3 intersect = viewRay.getPoint(rayGossip.distance);
+            // shadeRay implements material properties and lighting
+            return shadeRay(viewRay, intersect, rayGossip.id);
+        }
+
+        // Identify the closest intersection - if any - and return the distance to it and the object ID of the intersecting object
+        rayInfo traceRay(Ray viewRay, int id = -1) {
+            float t, tt;
+            float a = 1.0f;
+            float min = MAXFLOAT;
+            int minSphere = -1;
+            // Iterate over all objects
             for(int i = 0; i < spheres.size(); i++) {
                 // Calculate B
-                b = 2.0f * (viewRay.getDir().getVectorX() * (viewRay.getOrigin().getVectorX() - spheres[i].getCenter().getVectorX())
+                float b = 2.0f * (viewRay.getDir().getVectorX() * (viewRay.getOrigin().getVectorX() - spheres[i].getCenter().getVectorX())
                             + viewRay.getDir().getVectorY() * (viewRay.getOrigin().getVectorY() - spheres[i].getCenter().getVectorY())
                             + viewRay.getDir().getVectorZ() * (viewRay.getOrigin().getVectorZ() - spheres[i].getCenter().getVectorZ()));
                 // Calculate C
-                c = pow(viewRay.getOrigin().getVectorX() - spheres[i].getCenter().getVectorX(), 2)
+                float c = pow(viewRay.getOrigin().getVectorX() - spheres[i].getCenter().getVectorX(), 2)
                     + pow(viewRay.getOrigin().getVectorY() - spheres[i].getCenter().getVectorY(), 2)
                     + pow(viewRay.getOrigin().getVectorZ() - spheres[i].getCenter().getVectorZ(), 2)
                     - pow(spheres[i].getRadius(), 2);
                 // Calculate discriminant
-                discriminant = pow(b, 2) - 4.0f * a * c;
+                float discriminant = pow(b, 2) - 4.0f * a * c;
                 // Check if there is an intersection point
-                if (discriminant > 0.01) {
+                if (discriminant > 0.01 && i != id) {
                     // More than 1 solution
                     t = (-b + sqrt(discriminant)) / (2 * a);
                     tt = (-b - sqrt(discriminant)) / (2 * a);
@@ -57,7 +90,7 @@ class Raycaster {
                         minSphere = i;
                     }
                 }
-                else if (discriminant < 0.01 && discriminant > -0.01) {
+                else if (discriminant < 0.01 && discriminant > -0.01 && i != id) {
                     // Exactly 1 solution
                     t = (-b) / (2 * a);
                     if (t < min && t > 0) { 
@@ -68,12 +101,77 @@ class Raycaster {
                 else {}
             }
             if (minSphere != -1) {
-                return materials[spheres[minSphere].getMaterial()];
+                // Closest intersection t distance from point of ray with object # minSphere
+                return {{min},{minSphere}};
             }
             else {
-                return bkgColor;
+                // No intersection, return sentinel values
+                return {{-1},{-1}};
             }
         }
+
+        // Get the unit vector that points from a specific point to a light
+        Vector3 getLightDir(Light light, Vector3 surface) {
+            if (light.dirflag == 0) return light.vec.scaleVector(-1.0f).getNormalizedVector();
+            else return light.vec.subtractVector(surface).getNormalizedVector();
+        }
+
+        // Apply material properties and shadows
+        Color shadeRay(Ray ray, Vector3 intersection, int objectID) {
+            float diffDot, specDot;
+            Vector3 ambient, diffuse, specular, diffCon, specCon;
+            Vector3 lightDir, shadeNormal, h, v, tempIntensity, intensity;
+            intensity = Vector3(0,0,0);
+            // Get material of object for reference
+            Material activeMtl = materials[spheres[objectID].getMaterial()];
+            // Calculate constants for the material
+            ambient = activeMtl.diffuse.getAsVector().scaleVector(activeMtl.ambientk);
+            diffCon = activeMtl.diffuse.getAsVector().scaleVector(activeMtl.diffusek);
+            specCon = activeMtl.specular.getAsVector().scaleVector(activeMtl.speculark);
+            // Find normal and get viewing direction (incoming ray)
+            shadeNormal = spheres[objectID].getNormal(intersection);
+            v = ray.getDir().scaleVector(-1.0f);
+            // Sum each lights contribution
+            for (int i = 0; i < lights.size(); i++) {
+                Vector3 lightColor = lights[i].color.getAsVector();
+                lightDir = getLightDir(lights[i], intersection);
+                // Calculate diffuse argument - clamps values to prevent negatives
+                diffDot = clamp(shadeNormal.dotProduct(lightDir), 0.0f, MAXFLOAT);
+                diffuse = diffCon.scaleVector(diffDot);
+                // Calculate H unit vector
+                h = v.addVector(lightDir);
+                h = h.scaleVector(0.5f).getNormalizedVector();
+                // Calculate specular argument - clamp values to prevent negatives
+                specDot = clamp(shadeNormal.dotProduct(h), 0.0f, MAXFLOAT);
+                // Apply falloff value
+                specDot = pow(specDot, activeMtl.falloff);
+                specular = specCon.scaleVector(specDot);
+                // Combine arguments to find final intensity
+                tempIntensity = diffuse.addVector(specular).multiplyComponents(lightColor);
+
+                // Cast shadows from the intersection to the light source - still broke
+                rayInfo rayGossip = traceRay(Ray(intersection, lightDir), objectID);
+                // If intersection with shadow ray, evaluate for shadow flag
+                bool noShadow = 1;
+                // Avoid self intersections by comparing OG intersecting object with shadow intersecting object
+                if (0.01 < rayGossip.distance && rayGossip.id != objectID) {
+                    // If directional light, if any intersection, there is a shadow
+                    if (lights[i].dirflag == 0) noShadow = 0;
+                    // If point light, intersection must be within distance from OG intersection to light source
+                    else if (rayGossip.distance < lights[i].vec.subtractVector(intersection).magnitude())
+                            noShadow = 0;
+                }
+
+                // Apply shadow flag and add in diffuse/specular arguments
+                intensity = intensity.addVector(tempIntensity).scaleVector(noShadow);
+            }
+            // Add ambient values and clamp final result
+            intensity = intensity.addVector(ambient);
+            intensity = intensity.clampVector(0.0f, 1.0f);
+            // Return intensity as a color
+            return Color(intensity.getVectorX(), intensity.getVectorY(), intensity.getVectorZ());
+        }
+
 };
 
 void printImage(string filename, int ***image, int width, int height){
@@ -129,7 +227,7 @@ int main(int argc, char *argv[]){
 
     string line, keyword;
     bool imsizeFound = false, eyeFound = false, viewDirFound = false, upDirFound = false;
-    bool hfovFound = false, bkgColorFound = false, mtlColorFound = false;
+    bool hfovFound = false, bkgColorFound = false, mtlColorFound = false, lightFound = false;
     float tempx, tempy, tempz, tempr;
     Raycaster raycaster;
 
@@ -164,9 +262,9 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("eye") == 0){
                     eyeFound = true;
                     try{
-                        tempx = stod(tokens[1]);
-                        tempy = stod(tokens[2]);
-                        tempz = stod(tokens[3]);
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
                         raycaster.eye = Vector3(tempx, tempy, tempz);
                     }
                     catch (exception e){
@@ -180,9 +278,9 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("viewdir") == 0){
                     viewDirFound = true;
                     try{
-                        tempx = stod(tokens[1]);
-                        tempy = stod(tokens[2]);
-                        tempz = stod(tokens[3]);
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
                         raycaster.viewDir = Vector3(tempx, tempy, tempz);
                     }
                     catch (exception e){
@@ -196,9 +294,9 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("updir") == 0){
                     upDirFound = true;
                     try{
-                        tempx = stod(tokens[1]);
-                        tempy = stod(tokens[2]);
-                        tempz = stod(tokens[3]);
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
                         raycaster.upDir = Vector3(tempx, tempy, tempz);
                     }
                     catch (exception e){
@@ -225,10 +323,27 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("bkgcolor") == 0){
                     bkgColorFound = true;
                     try{
-                        tempx = stod(tokens[1]);
-                        tempy = stod(tokens[2]);
-                        tempz = stod(tokens[3]);
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
                         raycaster.bkgColor = Color(tempx, tempy, tempz);
+                    }
+                    catch (exception e){
+                        cout << "Invalid color" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }
+                }
+
+                // Light
+                if (keyword.compare("light") == 0){
+                    try{
+                        Light templ = { {Vector3(stof(tokens[1]), stof(tokens[2]), stof(tokens[3]))},
+                                        {stoi(tokens[4])},
+                                        {Color(stof(tokens[5]), stof(tokens[6]), stof(tokens[7]))}
+                                        };
+                        raycaster.lights.push_back(templ);
+                        lightFound = true;
                     }
                     catch (exception e){
                         cout << "Invalid color" << endl;
@@ -241,10 +356,11 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("mtlcolor") == 0){
                     mtlColorFound = true;
                     try{
-                        tempx = stod(tokens[1]);
-                        tempy = stod(tokens[2]);
-                        tempz = stod(tokens[3]);
-                        raycaster.materials.push_back(Color(tempx, tempy, tempz));
+                        Material tempm = {  {Color(stof(tokens[1]), stof(tokens[2]), stof(tokens[3]))},
+                                            {Color(stof(tokens[4]), stof(tokens[5]), stof(tokens[6]))},
+                                            {stof(tokens[7])}, {stof(tokens[8])}, {stof(tokens[9])}, {stof(tokens[10])}
+                                            };
+                        raycaster.materials.push_back(tempm);
                     }
                     catch (exception e){
                         cout << "Invalid color" << endl;
@@ -257,10 +373,10 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("sphere") == 0){
                     // Try to save seed
                     try{
-                        tempx = stod(tokens[1]);
-                        tempy = stod(tokens[2]);
-                        tempz = stod(tokens[3]);
-                        tempr = stod(tokens[4]);
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
+                        tempr = stof(tokens[4]);
                         if (mtlColorFound) raycaster.spheres.push_back(Sphere(Vector3(tempx, tempy, tempz), tempr, raycaster.materials.size()-1));
                         else throw invalid_argument("A sphere requires a material color to be set");
                     }
@@ -274,7 +390,7 @@ int main(int argc, char *argv[]){
         }
 
         // If imsize was not found in file, return with an error
-        if (!imsizeFound && !eyeFound && !viewDirFound && !hfovFound && !bkgColorFound){
+        if (!imsizeFound && !eyeFound && !viewDirFound && !hfovFound && !bkgColorFound && !lightFound){
             cout << "Invalid arguments, please recheck image descriptor guidelines" << endl;
             image_descriptor.close();
             return -1;            
@@ -291,13 +407,13 @@ int main(int argc, char *argv[]){
     raycaster.w = Vector3(-raycaster.viewDir.getVectorX(), -raycaster.viewDir.getVectorY(), -raycaster.viewDir.getVectorZ());
     raycaster.u = raycaster.viewDir.crossProduct(raycaster.upDir).getNormalizedVector();
     raycaster.v = raycaster.u.crossProduct(raycaster.viewDir).getNormalizedVector();
-    raycaster.ratio = raycaster.width / raycaster.height;
-    raycaster.coordWidth = 2 * raycaster.d * tan(0.5 * ((raycaster.hfov * M_PI) / 180));
+    raycaster.ratio = (float) raycaster.width / (float) raycaster.height;
+    raycaster.coordWidth = 2.0 * raycaster.d * tan(0.5 * ((raycaster.hfov * M_PI) / 180));
     raycaster.coordHeight = raycaster.coordWidth / raycaster.ratio;
     raycaster.normal = raycaster.viewDir.getNormalizedVector().scaleVector(raycaster.d);
     raycaster.normal = raycaster.viewDir.addVector(raycaster.normal);
-    raycaster.viewWidth = raycaster.u.scaleVector(raycaster.coordWidth / 2);
-    raycaster.viewHeight = raycaster.v.scaleVector(raycaster.coordHeight / 2);
+    raycaster.viewWidth = raycaster.u.scaleVector(raycaster.coordWidth / 2.0f);
+    raycaster.viewHeight = raycaster.v.scaleVector(raycaster.coordHeight / 2.0f);
     // Viewing window coordinate calculations
     raycaster.pointUL = raycaster.normal.subtractVector(raycaster.viewWidth).addVector(raycaster.viewHeight);
     raycaster.pointUR = raycaster.normal.addVector(raycaster.viewWidth).addVector(raycaster.viewHeight);
@@ -332,6 +448,7 @@ int main(int argc, char *argv[]){
     raycaster.u.print();
     cout << "v ";
     raycaster.v.print();
+    cout << "ratio " << raycaster.ratio << endl;
     cout << "Coord wxh " << raycaster.coordWidth << " " << raycaster.coordHeight << endl;
     cout << "ul point ";
     raycaster.pointUL.print();
@@ -370,7 +487,7 @@ int main(int argc, char *argv[]){
             for (int j = 0; j < raycaster.width; j++){
                 // Find new target point on the coord grid
                 point = raycaster.fullOffset.addVector(raycaster.hoffset.scaleVector((float) j)).addVector(raycaster.voffset.scaleVector((float) i));
-                pixColor = raycaster.traceRay(Ray(raycaster.eye, point));
+                pixColor = raycaster.raycast(Ray(raycaster.eye, point.subtractVector(raycaster.eye).getNormalizedVector()));
                 newImage[i][j][0] = pixColor.getColorR(true);
                 newImage[i][j][1] = pixColor.getColorG(true);
                 newImage[i][j][2] = pixColor.getColorB(true);

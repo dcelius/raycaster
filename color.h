@@ -3,6 +3,7 @@
 
 #include <cmath>
 #include <iostream>
+#include "vector3.h"
 
 class Color {
     private:
@@ -17,6 +18,7 @@ class Color {
         float getColorG(bool eightBit = false);
         float getColorB(bool eightBit = false);
         float getColorA(bool eightBit = false);
+        Vector3 getAsVector();
         void setColor(float newr, float newg, float newb, float newa);
         void print();
 };

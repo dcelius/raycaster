@@ -5,15 +5,16 @@
 
 class Ray {
     private:
-        Vector3 point;
+        Vector3 origin;
         Vector3 dir;
     
     public:
-        Ray(Vector3 origin, Vector3 goal);
+        Ray(Vector3 origin, Vector3 dir);
         Ray(){};
-        void setRay(Vector3 newOrigin, Vector3 newGoal);
+        void setRay(Vector3 newOrigin, Vector3 newDir);
         Vector3 getOrigin();
         Vector3 getDir();
+        Vector3 getPoint(float distance);
 };
 
 #endif
