@@ -14,4 +14,4 @@ raycaster1b: ${OBJS}
 
 clean:
 	@echo "Cleaning up..."
-	rm -rvf *.o raycaster
+	rm -rvf *.o raycaster raycaster1b

@@ -1,5 +1,5 @@
 // Written by Dylan Celius
-// 1/22/23
+// 2/19/23
 
 #include <iostream>
 #include <fstream>
@@ -28,11 +28,18 @@ struct Light {
     Vector3 vec;
     int dirflag;
     Color color;
+    float c1, c2, c3;
 };
 
 struct rayInfo {
     float distance;
     int id;
+};
+
+struct Depth {
+    Color depthCol;
+    float amin, amax;
+    float distMin, distMax;
 };
 
 class Raycaster {
@@ -49,6 +56,7 @@ class Raycaster {
         Vector3 normal, viewWidth, viewHeight;
         Vector3 pointUL, pointUR, pointLL, pointLR;
         Vector3 hoffset, voffset, choffset, cvoffset, fullOffset;
+        Depth depth = {Color(1, 1, 1), -1, -1, -1, -1};
 
         // A wrapper that checks for an intersection, then calls shadeRay to apply material prop. and shadows
         Color raycast(Ray viewRay) {
@@ -149,24 +157,50 @@ class Raycaster {
                 // Combine arguments to find final intensity
                 tempIntensity = diffuse.addVector(specular).multiplyComponents(lightColor);
 
-                // Cast shadows from the intersection to the light source - still broke
+                // Cast shadows from the intersection to the light source
                 rayInfo rayGossip = traceRay(Ray(intersection, lightDir), objectID);
                 // If intersection with shadow ray, evaluate for shadow flag
                 bool noShadow = 1;
                 // Avoid self intersections by comparing OG intersecting object with shadow intersecting object
-                if (0.01 < rayGossip.distance && rayGossip.id != objectID) {
-                    // If directional light, if any intersection, there is a shadow
-                    if (lights[i].dirflag == 0) noShadow = 0;
-                    // If point light, intersection must be within distance from OG intersection to light source
-                    else if (rayGossip.distance < lights[i].vec.subtractVector(intersection).magnitude())
-                            noShadow = 0;
+                if (0.01 < rayGossip.distance) {
+                    if (rayGossip.id != objectID) {
+                        // If directional light, if any intersection, there is a shadow
+                        if (lights[i].dirflag == 0) noShadow = 0;
+                        // If point light, intersection must be within distance from OG intersection to light source
+                        else if (rayGossip.distance < lights[i].vec.subtractVector(intersection).magnitude())
+                                noShadow = 0;
+                    }
+                }
+
+                // LIGHT ATTENUATION
+                float distance = 1, attenuation = 1;
+                if (lights[i].dirflag != 0) {
+                    distance = lights[i].vec.subtractVector(intersection).magnitude();
+                    attenuation = lights[i].c1 + lights[i].c2 * distance + lights[i].c3 * pow(distance, 2);
+                    attenuation = clamp(1.0f / attenuation, 0.0f, 1.0f);
                 }
 
                 // Apply shadow flag and add in diffuse/specular arguments
-                intensity = intensity.addVector(tempIntensity).scaleVector(noShadow);
+                tempIntensity = tempIntensity.scaleVector(attenuation);
+                tempIntensity = tempIntensity.scaleVector(noShadow);
+                intensity = intensity.addVector(tempIntensity);
             }
-            // Add ambient values and clamp final result
+            // Add ambient values
             intensity = intensity.addVector(ambient);
+
+            // DEPTH CUEING
+            if (depth.amax != -1) {
+                float distance = eye.subtractVector(intersection).magnitude();
+                float a;
+                if (distance <= depth.distMin) a = depth.amax;
+                else if (distance >= depth.distMax) a = depth.amin;
+                else {
+                    a = depth.amin + (depth.amax - depth.amin) * ((depth.distMax - distance) / (depth.distMax - depth.distMin));
+                }
+                intensity = intensity.scaleVector(a).addVector(depth.depthCol.getAsVector().scaleVector(1-a));
+            }
+
+            // Clamp final values
             intensity = intensity.clampVector(0.0f, 1.0f);
             // Return intensity as a color
             return Color(intensity.getVectorX(), intensity.getVectorY(), intensity.getVectorZ());
@@ -335,18 +369,53 @@ int main(int argc, char *argv[]){
                     }
                 }
 
-                // Light
+                // Attenuated Light
                 if (keyword.compare("light") == 0){
                     try{
                         Light templ = { {Vector3(stof(tokens[1]), stof(tokens[2]), stof(tokens[3]))},
                                         {stoi(tokens[4])},
-                                        {Color(stof(tokens[5]), stof(tokens[6]), stof(tokens[7]))}
+                                        {Color(stof(tokens[5]), stof(tokens[6]), stof(tokens[7]))},
+                                        {1}, {0}, {0}
                                         };
                         raycaster.lights.push_back(templ);
                         lightFound = true;
                     }
                     catch (exception e){
                         cout << "Invalid color" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }
+                }
+
+                // Light
+                if (keyword.compare("attlight") == 0){
+                    try{
+                        Light templ = { {Vector3(stof(tokens[1]), stof(tokens[2]), stof(tokens[3]))},
+                                        {stoi(tokens[4])},
+                                        {Color(stof(tokens[5]), stof(tokens[6]), stof(tokens[7]))},
+                                        {stof(tokens[8])}, {stof(tokens[9])}, {stof(tokens[10])}
+                                        };
+                        raycaster.lights.push_back(templ);
+                        lightFound = true;
+                    }
+                    catch (exception e){
+                        cout << "Invalid color" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }
+                }
+
+                // Depth Cueing
+                if (keyword.compare("depthcueing") == 0){
+                    try{
+                        Depth temp = { {Color(stof(tokens[1]), stof(tokens[2]), stof(tokens[3]))},
+                                        {stof(tokens[4])}, {stof(tokens[5])},
+                                        {stof(tokens[6])}, {stof(tokens[7])}
+                                        };
+                        raycaster.depth = temp;
+                    }
+                    catch (exception e){
+                        cout << "Invalid depth cueing" << endl;
                         image_descriptor.close();
                         return -1;
                     }
