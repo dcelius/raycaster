@@ -38,8 +38,8 @@ struct rayInfo {
 
 struct Depth {
     Color depthCol;
-    float amin, amax;
-    float distMin, distMax;
+    float amax, amin;
+    float distMax, distMin;
 };
 
 class Raycaster {
@@ -57,6 +57,10 @@ class Raycaster {
         Vector3 pointUL, pointUR, pointLL, pointLR;
         Vector3 hoffset, voffset, choffset, cvoffset, fullOffset;
         Depth depth = {Color(1, 1, 1), -1, -1, -1, -1};
+
+        float clip(float n, float lower, float upper) {
+            return max(lower, min(n, upper));
+        }
 
         // A wrapper that checks for an intersection, then calls shadeRay to apply material prop. and shadows
         Color raycast(Ray viewRay) {
@@ -144,13 +148,13 @@ class Raycaster {
                 Vector3 lightColor = lights[i].color.getAsVector();
                 lightDir = getLightDir(lights[i], intersection);
                 // Calculate diffuse argument - clamps values to prevent negatives
-                diffDot = clamp(shadeNormal.dotProduct(lightDir), 0.0f, MAXFLOAT);
+                diffDot = clip(shadeNormal.dotProduct(lightDir), 0.0f, MAXFLOAT);
                 diffuse = diffCon.scaleVector(diffDot);
                 // Calculate H unit vector
                 h = v.addVector(lightDir);
                 h = h.scaleVector(0.5f).getNormalizedVector();
                 // Calculate specular argument - clamp values to prevent negatives
-                specDot = clamp(shadeNormal.dotProduct(h), 0.0f, MAXFLOAT);
+                specDot = clip(shadeNormal.dotProduct(h), 0.0f, MAXFLOAT);
                 // Apply falloff value
                 specDot = pow(specDot, activeMtl.falloff);
                 specular = specCon.scaleVector(specDot);
@@ -177,7 +181,7 @@ class Raycaster {
                 if (lights[i].dirflag != 0) {
                     distance = lights[i].vec.subtractVector(intersection).magnitude();
                     attenuation = lights[i].c1 + lights[i].c2 * distance + lights[i].c3 * pow(distance, 2);
-                    attenuation = clamp(1.0f / attenuation, 0.0f, 1.0f);
+                    attenuation = clip(1.0f / attenuation, 0.0f, 1.0f);
                 }
 
                 // Apply shadow flag and add in diffuse/specular arguments
