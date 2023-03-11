@@ -2,9 +2,9 @@ CC := g++
 SRCS := $(wildcard *.cpp)
 OBJS := $(SRCS:%.cpp=%.o)
 
-all: ${OBJS} raycaster1b
+all: ${OBJS} raycaster1c
 
-raycaster1b: ${OBJS}
+raycaster1c: ${OBJS}
 	@echo "Checking.."
 	${CC} $^ -o $@
 
@@ -14,4 +14,8 @@ raycaster1b: ${OBJS}
 
 clean:
 	@echo "Cleaning up..."
-	rm -rvf *.o raycaster raycaster1b
+	rm -rvf *.o raycaster raycaster1c
+
+clean-ppm:
+	@echo "Removing generated images..."
+	rm -rvf *.ppm

@@ -33,7 +33,8 @@ struct Light {
 
 struct rayInfo {
     float distance;
-    int id;
+    int id, objType;
+    float baryx, baryy, baryz;
 };
 
 struct Depth {
@@ -41,6 +42,15 @@ struct Depth {
     float amax, amin;
     float distMax, distMin;
 };
+
+struct Face {
+    Vector3 e1;
+    Vector3 e2;
+    Vector3 normal;
+};
+
+const int SPHERE_OBJ_TYPE = 0;
+const int TRIANGLE_OBJ_TYPE = 1;
 
 class Raycaster {
     public:
@@ -50,6 +60,12 @@ class Raycaster {
         vector<Material> materials;
         vector<Sphere> spheres;
         vector<Light> lights;
+        vector<Vector3> vertices;
+        vector<Vector3> vnormals;
+        vector<Vector3> vtextures;
+        vector<array<int, 11>> faces;
+        vector<Face> faceInfo;
+        vector<vector<vector<Color>>> textures;
         Vector3 w, u, v;
         int d = 100;
         float ratio, coordWidth, coordHeight;
@@ -69,7 +85,7 @@ class Raycaster {
             if (rayGossip.distance < 0) return bkgColor;
             Vector3 intersect = viewRay.getPoint(rayGossip.distance);
             // shadeRay implements material properties and lighting
-            return shadeRay(viewRay, intersect, rayGossip.id);
+            return shadeRay(viewRay, intersect, rayGossip);
         }
 
         // Identify the closest intersection - if any - and return the distance to it and the object ID of the intersecting object
@@ -77,7 +93,9 @@ class Raycaster {
             float t, tt;
             float a = 1.0f;
             float min = MAXFLOAT;
-            int minSphere = -1;
+            int minObj = -1;
+            int objType = -1;
+            float baryx = -1, baryy = -1, baryz = -1;
             // Iterate over all objects
             for(int i = 0; i < spheres.size(); i++) {
                 // Calculate B
@@ -99,7 +117,8 @@ class Raycaster {
                     if (tt < t && tt > 0) t = tt;
                     if (t < min && t > 0) { 
                         min = t;
-                        minSphere = i;
+                        minObj = i;
+                        objType = SPHERE_OBJ_TYPE;
                     }
                 }
                 else if (discriminant < 0.01 && discriminant > -0.01 && i != id) {
@@ -107,18 +126,62 @@ class Raycaster {
                     t = (-b) / (2 * a);
                     if (t < min && t > 0) { 
                         min = t;
-                        minSphere = i;
+                        minObj = i;
+                        objType = SPHERE_OBJ_TYPE;
                     }
                 }
                 else {}
             }
-            if (minSphere != -1) {
-                // Closest intersection t distance from point of ray with object # minSphere
-                return {{min},{minSphere}};
+            
+            for(int i = 0; i < faces.size(); i++) {
+                // ABC from Normal
+                float a = faceInfo[i].normal.getVectorX();
+                float b = faceInfo[i].normal.getVectorY();
+                float c = faceInfo[i].normal.getVectorZ();
+                // D calculated from point on triangle/plane
+                float d = -1.0f * (a * vertices[faces[i][0]].getVectorX() +
+                            b * vertices[faces[i][0]].getVectorY() +
+                            c * vertices[faces[i][0]].getVectorZ());
+                // Calc denominator
+                float denominator = a * viewRay.getDir().getVectorX() + b * viewRay.getDir().getVectorY() + c * viewRay.getDir().getVectorZ();
+                // No solution if denom == 0
+                if (denominator < -0.001 || denominator > 0.001) t = (a * viewRay.getOrigin().getVectorX() + b * viewRay.getOrigin().getVectorY() +
+                    c * viewRay.getOrigin().getVectorZ() + d) / denominator * -1;
+                else t = -1;
+                // Only care about positive distance and new min distances
+                if (t > 0 && t < min) {
+                    // Find barycentric coordinates
+                    Vector3 ep = viewRay.getPoint(t).subtractVector(vertices[faces[i][0]]);                    
+                    float d11 = faceInfo[i].e1.dotProduct(faceInfo[i].e1);
+                    float d22 = faceInfo[i].e2.dotProduct(faceInfo[i].e2);
+                    float d12 = faceInfo[i].e1.dotProduct(faceInfo[i].e2);
+                    float det = (d11 * d22) - (d12 * d12);
+                    // if det == 0, no solution
+                    if (det < 0.001 && det > -0.001) break;
+                    float beta = (d22 * faceInfo[i].e1.dotProduct(ep)
+                                    - d12 * faceInfo[i].e2.dotProduct(ep)) / det;
+                    float lambda = (d11 * faceInfo[i].e2.dotProduct(ep)
+                                    - d12 * faceInfo[i].e1.dotProduct(ep)) / det;
+                    // If within these bounds, point is in triangle
+                    if (beta + lambda < 1 && beta > 0 && lambda > 0) {
+                        min = t;
+                        minObj = i;
+                        objType = TRIANGLE_OBJ_TYPE;
+                        baryx = 1-beta-lambda;
+                        baryy = beta;
+                        baryz = lambda;
+                    }
+                }
+
+            }
+
+            if (minObj != -1) {
+                // Closest intersection t distance from point of ray with object # minObj
+                return {{min}, {minObj}, {objType}, {baryx}, {baryy}, {baryz}};
             }
             else {
                 // No intersection, return sentinel values
-                return {{-1},{-1}};
+                return {{-1}, {-1}, {-1}};
             }
         }
 
@@ -129,19 +192,82 @@ class Raycaster {
         }
 
         // Apply material properties and shadows
-        Color shadeRay(Ray ray, Vector3 intersection, int objectID) {
+        Color shadeRay(Ray ray, Vector3 intersection, rayInfo rayGossip) {
+            int objectID = rayGossip.id;
+            int objType = rayGossip.objType;
             float diffDot, specDot;
             Vector3 ambient, diffuse, specular, diffCon, specCon;
             Vector3 lightDir, shadeNormal, h, v, tempIntensity, intensity;
             intensity = Vector3(0,0,0);
             // Get material of object for reference
-            Material activeMtl = materials[spheres[objectID].getMaterial()];
-            // Calculate constants for the material
-            ambient = activeMtl.diffuse.getAsVector().scaleVector(activeMtl.ambientk);
-            diffCon = activeMtl.diffuse.getAsVector().scaleVector(activeMtl.diffusek);
-            specCon = activeMtl.specular.getAsVector().scaleVector(activeMtl.speculark);
+            Material activeMtl;
+            if(objType == SPHERE_OBJ_TYPE) activeMtl = materials[spheres[objectID].getMaterial()];
+            else if(objType == TRIANGLE_OBJ_TYPE) activeMtl = materials[faces[objectID][9]];
             // Find normal and get viewing direction (incoming ray)
-            shadeNormal = spheres[objectID].getNormal(intersection);
+            if(objType == SPHERE_OBJ_TYPE) shadeNormal = spheres[objectID].getNormal(intersection);
+            else if(objType == TRIANGLE_OBJ_TYPE) {
+                // Flat triangles can just use the plane normal
+                if(faces[objectID][6] == -1) shadeNormal = faceInfo[objectID].normal.getNormalizedVector();
+                else {
+                    // If smooth shading, then calc weighted normal
+                    shadeNormal = vnormals[faces[objectID][6]].scaleVector(rayGossip.baryx).addVector(
+                                    vnormals[faces[objectID][7]].scaleVector(rayGossip.baryy).addVector(
+                                    vnormals[faces[objectID][8]].scaleVector(rayGossip.baryz))).getNormalizedVector();
+                }
+            }
+
+            // Set default colors
+            diffuse = activeMtl.diffuse.getAsVector();
+            specular = activeMtl.specular.getAsVector();
+
+            // Handle textures
+            double psi, theta, texu, texv;
+            bool texUsed = false;
+            int texID;
+            if(objType == SPHERE_OBJ_TYPE) {
+                texID = spheres[objectID].getTexture();
+                if (texID != -1) {
+                    texUsed = true;
+                    psi = acos(shadeNormal.getVectorZ());
+                    texv = psi / M_PI;
+                    theta = atan2(shadeNormal.getVectorY(), shadeNormal.getVectorX());
+                    // Rotate to meet 0 < theta < 2pi range
+                    if (theta < 0) theta = theta + (2 * M_PI);
+                    texu = theta / (2 * M_PI);
+                }
+            }
+            else if(objType == TRIANGLE_OBJ_TYPE) {
+                texID = faces[objectID][10];
+                if (texID != -1 && faces[objectID][3] != -1) {
+                    texUsed = true;
+                    texu = vtextures[faces[objectID][3]].getVectorX() * rayGossip.baryx +
+                            vtextures[faces[objectID][4]].getVectorX() * rayGossip.baryy +
+                            vtextures[faces[objectID][5]].getVectorX() * rayGossip.baryz;
+                    texv = vtextures[faces[objectID][3]].getVectorY() * rayGossip.baryx +
+                            vtextures[faces[objectID][4]].getVectorY() * rayGossip.baryy +
+                            vtextures[faces[objectID][5]].getVectorY() * rayGossip.baryz;
+                }
+            }
+            if (texUsed) {
+                // Bilinearaly interpolate value
+                float x, y;
+                int i, j;
+                float a, b;
+                x = texu * (textures[texID][0].size() - 1);
+                y = texv * (textures[texID].size() - 1);
+                i = floor(x); j = floor(y);
+                a = x - i; b = y - j;
+                diffuse = textures[texID][j][i].getAsVector().scaleVector((1-a)*(1-b)).addVector(
+                    textures[texID][j][i+1].getAsVector().scaleVector((a)*(1-b)).addVector(
+                    textures[texID][j+1][i].getAsVector().scaleVector((1-a)*(b)).addVector(
+                    textures[texID][j+1][i+1].getAsVector().scaleVector((a)*(b)))));
+            }
+
+            // Calculate constants for the material
+            ambient = diffuse.scaleVector(activeMtl.ambientk);
+            diffCon = diffuse.scaleVector(activeMtl.diffusek);
+            specCon = activeMtl.specular.getAsVector().scaleVector(activeMtl.speculark);
+
             v = ray.getDir().scaleVector(-1.0f);
             // Sum each lights contribution
             for (int i = 0; i < lights.size(); i++) {
@@ -242,13 +368,36 @@ void printImage(string filename, int ***image, int width, int height){
     image_file.close();
 }
 
+// Trim function - https://stackoverflow.com/questions/216823/how-to-trim-an-stdstring
+const char* WS_CHARACTERS = " \t\n\r\f\v";
+
+// trim from end of string (right)
+inline std::string& rtrim(std::string& s, const char* t = WS_CHARACTERS)
+{
+    s.erase(s.find_last_not_of(t) + 1);
+    return s;
+}
+
+// trim from beginning of string (left)
+inline std::string& ltrim(std::string& s, const char* t = WS_CHARACTERS)
+{
+    s.erase(0, s.find_first_not_of(t));
+    return s;
+}
+
+// trim from both ends of string (right then left)
+inline std::string& trim(std::string& s, const char* t = WS_CHARACTERS)
+{
+    return ltrim(rtrim(s, t), t);
+}
+
 // Break a line down into tokens
 vector<string> tokenizer(string line) {
     vector<string> tokens;
     stringstream check1(line);
     string temp;
     while(getline(check1, temp, ' ')) {
-        tokens.push_back(temp);
+        tokens.push_back(trim(temp));
     }
     return tokens;
 }
@@ -266,12 +415,17 @@ int main(int argc, char *argv[]){
     string line, keyword;
     bool imsizeFound = false, eyeFound = false, viewDirFound = false, upDirFound = false;
     bool hfovFound = false, bkgColorFound = false, mtlColorFound = false, lightFound = false;
+    bool textureFound = false;
     float tempx, tempy, tempz, tempr;
     Raycaster raycaster;
 
     vector<string> tokens;
     // Catch for invalid filename
     if (image_descriptor.is_open()){
+        // Ensure vertices are aligned starting at 1
+        raycaster.vertices.push_back(Vector3(0,0,0));
+        raycaster.vnormals.push_back(Vector3(0,0,0));
+        raycaster.vtextures.push_back(Vector3(0,0,0));
         // Read each line in the file
         while (getline(image_descriptor, line)){
             
@@ -446,16 +600,146 @@ int main(int argc, char *argv[]){
                 if (keyword.compare("sphere") == 0){
                     // Try to save seed
                     try{
+                        int tex = -1;
                         tempx = stof(tokens[1]);
                         tempy = stof(tokens[2]);
                         tempz = stof(tokens[3]);
                         tempr = stof(tokens[4]);
-                        if (mtlColorFound) raycaster.spheres.push_back(Sphere(Vector3(tempx, tempy, tempz), tempr, raycaster.materials.size()-1));
+                        if (textureFound) tex = raycaster.textures.size()-1;
+                        if (mtlColorFound) raycaster.spheres.push_back(Sphere(Vector3(tempx, tempy, tempz), tempr, raycaster.materials.size()-1, tex));
                         else throw invalid_argument("A sphere requires a material color to be set");
                     }
                     catch (exception e){
                         cout << "Invalid sphere" << endl;
                         image_descriptor.close();
+                        return -1;
+                    }
+                }
+
+                // Vertices
+                if (keyword.compare("v") == 0) {
+                    try{
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
+                        raycaster.vertices.push_back(Vector3(tempx, tempy, tempz));     
+                    }
+                    catch (exception e){
+                        cout << "Invalid vertex" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }          
+                }
+
+                // Vertex Normals
+                if (keyword.compare("vn") == 0) {
+                    try{
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        tempz = stof(tokens[3]);
+                        raycaster.vnormals.push_back(Vector3(tempx, tempy, tempz).getNormalizedVector());     
+                    }
+                    catch (exception e){
+                        cout << "Invalid vertex normal" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }          
+                }
+
+                // Texture Coordinates
+                if (keyword.compare("vt") == 0) {
+                    try{
+                        tempx = stof(tokens[1]);
+                        tempy = stof(tokens[2]);
+                        raycaster.vtextures.push_back(Vector3(tempx, tempy, 0));     
+                    }
+                    catch (exception e){
+                        cout << "Invalid texture coordinate" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }          
+                }
+
+                // Triangles
+                if (keyword.compare("f") == 0) {
+                    line = line.substr(2);
+                    const char* faceline = line.c_str();
+                    array<int, 11> face = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+                    if (sscanf(faceline, "%d/%d/%d %d/%d/%d %d/%d/%d",
+                        &face[0], &face[3], &face[6],
+                        &face[1], &face[4], &face[7],
+                        &face[2], &face[5], &face[8]) == 9) {
+                    //success reading a face in v/t/n format; proceed accordingly
+                    } else if (sscanf(faceline, "%d//%d %d//%d %d//%d",
+                        &face[0], &face[6],
+                        &face[1], &face[7],
+                        &face[2], &face[8]) == 6) {
+                    //success reading a face in v//n format; proceed accordingly
+                    } else if (sscanf(faceline, "%d/%d %d/%d %d/%d",
+                        &face[0], &face[3],
+                        &face[1], &face[4],
+                        &face[2], &face[5]) == 6) {
+                    //success reading a face in v/t format; proceed accordingly
+                    } else if (sscanf(faceline, "%d %d %d",
+                        &face[0], &face[1], &face[2]) == 3) {
+                    //success reading a face in v format; proceed accordingly
+                    } else{
+                    //error reading face data
+                        cout << "Invalid face description" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }
+                    if (mtlColorFound) face[9] = raycaster.materials.size()-1;
+                    else {
+                        cout << "No color has been defined yet!" << endl;
+                        image_descriptor.close();
+                        return -1;
+                    }
+                    if (textureFound) face[10] = raycaster.textures.size()-1;
+
+                    raycaster.faces.push_back(face);
+                    Vector3 e1 = raycaster.vertices[face[1]].subtractVector(raycaster.vertices[face[0]]);
+                    Vector3 e2 = raycaster.vertices[face[2]].subtractVector(raycaster.vertices[face[0]]);
+                    Vector3 normal = e1.crossProduct(e2);
+                    raycaster.faceInfo.push_back({e1, e2, normal});
+                }
+
+                if (keyword.compare("texture") == 0) {
+                    ifstream texture_file;
+                    try {
+                        texture_file.open(tokens[1]);
+                        if (texture_file.is_open()) {
+                            vector<vector<Color>> texture;
+                            vector<Color> row;
+                            vector<string> ppm_tokens;
+                            string tex_line;
+                            int u = 0, v = 0;
+                            int tex_width, tex_height;
+                            getline(texture_file, tex_line);
+                            ppm_tokens = tokenizer(tex_line);
+                            tex_width = stoi(ppm_tokens[1]);
+                            tex_height = stoi(ppm_tokens[2]);
+                            int color_max = stoi(ppm_tokens[3]);
+                            while (getline(texture_file, tex_line)){
+                                ppm_tokens = tokenizer(tex_line);
+                                for (int i = 0; i < ppm_tokens.size()-3; i = i + 4) {
+                                    row.push_back(Color(stof(ppm_tokens[i]) / color_max, stof(ppm_tokens[i+1]) / color_max, stof(ppm_tokens[i+2]) / color_max));
+                                    u++;
+                                    if (u >= tex_width) {
+                                        u = 0;
+                                        v++;
+                                        texture.push_back(row);
+                                        row.clear();
+                                    }
+                                }
+                            }
+                            texture_file.close();
+                            raycaster.textures.push_back(texture);
+                            textureFound = true;
+                        }
+                    }
+                    catch (exception e) {
+                        texture_file.close();
                         return -1;
                     }
                 }
@@ -537,7 +821,38 @@ int main(int argc, char *argv[]){
     raycaster.voffset.print();
     raycaster.fullOffset.print();
     */
-
+    /*
+    for (int i = 1; i < raycaster.vertices.size(); i++) {
+        cout << "Vertex #" << i << endl;
+        raycaster.vertices[i].print();
+    }
+    for (int i = 1; i < raycaster.vnormals.size(); i++) {
+        cout << "Vertex normal #" << i << endl;
+        raycaster.vnormals[i].print();
+    }
+    for (int i = 1; i < raycaster.vtextures.size(); i++) {
+        cout << "Texture Coordinate #" << i << endl;
+        raycaster.vtextures[i].print();
+    }
+    for (int i = 0; i < raycaster.faces.size(); i++) {
+        cout << "Face #" << i << endl;
+        raycaster.vertices[raycaster.faces[i][0]].print();
+        raycaster.vertices[raycaster.faces[i][1]].print();
+        raycaster.vertices[raycaster.faces[i][2]].print();
+        if (raycaster.faces[i][3] != -1) {
+            cout << "Texture Coordinates" << endl;
+            raycaster.vtextures[raycaster.faces[i][3]].print();
+            raycaster.vtextures[raycaster.faces[i][4]].print();
+            raycaster.vtextures[raycaster.faces[i][5]].print();
+        }
+        if (raycaster.faces[i][6] != -1) {
+            cout << "Vertex Normals" << endl;
+            raycaster.vnormals[raycaster.faces[i][6]].print();
+            raycaster.vnormals[raycaster.faces[i][7]].print();
+            raycaster.vnormals[raycaster.faces[i][8]].print();
+        }
+    }
+    */
 
     // Intialize memory block for new picture
     int ***newImage = new int**[raycaster.height];

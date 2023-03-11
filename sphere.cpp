@@ -3,7 +3,7 @@
 
 #include "sphere.h"
 
-Sphere::Sphere(Vector3 newCenter, float newr, int newm) : center(newCenter), r(newr), m(newm) {}
+Sphere::Sphere(Vector3 newCenter, float newr, int newm, int newt) : center(newCenter), r(newr), m(newm), t(newt) {}
 
 void Sphere::setCenter(Vector3 newCenter) {
     center = newCenter;
@@ -20,6 +20,7 @@ void Sphere::setSphere(Vector3 newCenter, float newr) {
 Vector3 Sphere::getCenter() { return center; }
 float Sphere::getRadius() { return r; }
 int Sphere::getMaterial() { return m; }
+int Sphere::getTexture() { return t; }
 void Sphere::print() {
     center.print();
     std::cout << " Color: " << m << std::endl;
