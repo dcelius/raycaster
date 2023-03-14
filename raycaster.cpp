@@ -43,12 +43,6 @@ struct Depth {
     float distMax, distMin;
 };
 
-struct Face {
-    Vector3 e1;
-    Vector3 e2;
-    Vector3 normal;
-};
-
 const int SPHERE_OBJ_TYPE = 0;
 const int TRIANGLE_OBJ_TYPE = 1;
 
@@ -64,10 +58,9 @@ class Raycaster {
         vector<Vector3> vnormals;
         vector<Vector3> vtextures;
         vector<array<int, 11>> faces;
-        vector<Face> faceInfo;
         vector<vector<vector<Color>>> textures;
         Vector3 w, u, v;
-        int d = 100;
+        int d = 250;
         float ratio, coordWidth, coordHeight;
         Vector3 normal, viewWidth, viewHeight;
         Vector3 pointUL, pointUR, pointLL, pointLR;
@@ -135,9 +128,12 @@ class Raycaster {
             
             for(int i = 0; i < faces.size(); i++) {
                 // ABC from Normal
-                float a = faceInfo[i].normal.getVectorX();
-                float b = faceInfo[i].normal.getVectorY();
-                float c = faceInfo[i].normal.getVectorZ();
+                Vector3 e1 = vertices[faces[i][1]].subtractVector(vertices[faces[i][0]]);
+                Vector3 e2 = vertices[faces[i][2]].subtractVector(vertices[faces[i][0]]);
+                Vector3 normal = e1.crossProduct(e2);
+                float a = normal.getVectorX();
+                float b = normal.getVectorY();
+                float c = normal.getVectorZ();
                 // D calculated from point on triangle/plane
                 float d = -1.0f * (a * vertices[faces[i][0]].getVectorX() +
                             b * vertices[faces[i][0]].getVectorY() +
@@ -145,25 +141,27 @@ class Raycaster {
                 // Calc denominator
                 float denominator = a * viewRay.getDir().getVectorX() + b * viewRay.getDir().getVectorY() + c * viewRay.getDir().getVectorZ();
                 // No solution if denom == 0
-                if (denominator < -0.001 || denominator > 0.001) t = (a * viewRay.getOrigin().getVectorX() + b * viewRay.getOrigin().getVectorY() +
+                if (denominator < -0.00001 || denominator > 0.00001) t = (a * viewRay.getOrigin().getVectorX() + b * viewRay.getOrigin().getVectorY() +
                     c * viewRay.getOrigin().getVectorZ() + d) / denominator * -1;
                 else t = -1;
                 // Only care about positive distance and new min distances
                 if (t > 0 && t < min) {
                     // Find barycentric coordinates
                     Vector3 ep = viewRay.getPoint(t).subtractVector(vertices[faces[i][0]]);                    
-                    float d11 = faceInfo[i].e1.dotProduct(faceInfo[i].e1);
-                    float d22 = faceInfo[i].e2.dotProduct(faceInfo[i].e2);
-                    float d12 = faceInfo[i].e1.dotProduct(faceInfo[i].e2);
+                    float d11 = e1.dotProduct(e1);
+                    float d22 = e2.dotProduct(e2);
+                    float d12 = e1.dotProduct(e2);
                     float det = (d11 * d22) - (d12 * d12);
+
                     // if det == 0, no solution
-                    if (det < 0.001 && det > -0.001) break;
-                    float beta = (d22 * faceInfo[i].e1.dotProduct(ep)
-                                    - d12 * faceInfo[i].e2.dotProduct(ep)) / det;
-                    float lambda = (d11 * faceInfo[i].e2.dotProduct(ep)
-                                    - d12 * faceInfo[i].e1.dotProduct(ep)) / det;
+                    //cout << d11 << " " << d22 << " " << d12 << endl;
+                    if (det < 0.00001 && det > -0.00001) t = -1;
+                    float beta = (d22 * e1.dotProduct(ep)
+                                    - d12 * e2.dotProduct(ep)) / det;
+                    float lambda = (d11 * e2.dotProduct(ep)
+                                    - d12 * e1.dotProduct(ep)) / det;
                     // If within these bounds, point is in triangle
-                    if (beta + lambda < 1 && beta > 0 && lambda > 0) {
+                    if (beta + lambda < 1 && beta > 0 && lambda > 0 && t != -1) {
                         min = t;
                         minObj = i;
                         objType = TRIANGLE_OBJ_TYPE;
@@ -207,7 +205,12 @@ class Raycaster {
             if(objType == SPHERE_OBJ_TYPE) shadeNormal = spheres[objectID].getNormal(intersection);
             else if(objType == TRIANGLE_OBJ_TYPE) {
                 // Flat triangles can just use the plane normal
-                if(faces[objectID][6] == -1) shadeNormal = faceInfo[objectID].normal.getNormalizedVector();
+                if(faces[objectID][6] == -1) {
+                    Vector3 e1 = vertices[faces[objectID][1]].subtractVector(vertices[faces[objectID][0]]);
+                    Vector3 e2 = vertices[faces[objectID][2]].subtractVector(vertices[faces[objectID][0]]);
+                    Vector3 normal = e1.crossProduct(e2);
+                    shadeNormal = normal.getNormalizedVector();
+                }
                 else {
                     // If smooth shading, then calc weighted normal
                     shadeNormal = vnormals[faces[objectID][6]].scaleVector(rayGossip.baryx).addVector(
@@ -238,8 +241,7 @@ class Raycaster {
             }
             else if(objType == TRIANGLE_OBJ_TYPE) {
                 texID = faces[objectID][10];
-                if (texID != -1 && faces[objectID][3] != -1) {
-                    texUsed = true;
+                if (texID != -1 && faces[objectID][3] != -1) {                    texUsed = true;
                     texu = vtextures[faces[objectID][3]].getVectorX() * rayGossip.baryx +
                             vtextures[faces[objectID][4]].getVectorX() * rayGossip.baryy +
                             vtextures[faces[objectID][5]].getVectorX() * rayGossip.baryz;
@@ -288,16 +290,16 @@ class Raycaster {
                 tempIntensity = diffuse.addVector(specular).multiplyComponents(lightColor);
 
                 // Cast shadows from the intersection to the light source
-                rayInfo rayGossip = traceRay(Ray(intersection, lightDir), objectID);
+                rayInfo newRayGossip = traceRay(Ray(intersection, lightDir), objectID);
                 // If intersection with shadow ray, evaluate for shadow flag
                 bool noShadow = 1;
                 // Avoid self intersections by comparing OG intersecting object with shadow intersecting object
-                if (0.01 < rayGossip.distance) {
-                    if (rayGossip.id != objectID) {
+                if (0.01 < newRayGossip.distance) {
+                    if (newRayGossip.id != objectID) {
                         // If directional light, if any intersection, there is a shadow
                         if (lights[i].dirflag == 0) noShadow = 0;
                         // If point light, intersection must be within distance from OG intersection to light source
-                        else if (rayGossip.distance < lights[i].vec.subtractVector(intersection).magnitude())
+                        else if (newRayGossip.distance < lights[i].vec.subtractVector(intersection).magnitude())
                                 noShadow = 0;
                     }
                 }
@@ -396,9 +398,7 @@ vector<string> tokenizer(string line) {
     vector<string> tokens;
     stringstream check1(line);
     string temp;
-    while(getline(check1, temp, ' ')) {
-        tokens.push_back(trim(temp));
-    }
+    while(getline(check1, temp, ' ')) if (temp.size() != 0) tokens.push_back(trim(temp));
     return tokens;
 }
 
@@ -662,46 +662,61 @@ int main(int argc, char *argv[]){
 
                 // Triangles
                 if (keyword.compare("f") == 0) {
-                    line = line.substr(2);
-                    const char* faceline = line.c_str();
-                    array<int, 11> face = {-1, -1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
-                    if (sscanf(faceline, "%d/%d/%d %d/%d/%d %d/%d/%d",
-                        &face[0], &face[3], &face[6],
-                        &face[1], &face[4], &face[7],
-                        &face[2], &face[5], &face[8]) == 9) {
-                    //success reading a face in v/t/n format; proceed accordingly
-                    } else if (sscanf(faceline, "%d//%d %d//%d %d//%d",
-                        &face[0], &face[6],
-                        &face[1], &face[7],
-                        &face[2], &face[8]) == 6) {
-                    //success reading a face in v//n format; proceed accordingly
-                    } else if (sscanf(faceline, "%d/%d %d/%d %d/%d",
-                        &face[0], &face[3],
-                        &face[1], &face[4],
-                        &face[2], &face[5]) == 6) {
-                    //success reading a face in v/t format; proceed accordingly
-                    } else if (sscanf(faceline, "%d %d %d",
-                        &face[0], &face[1], &face[2]) == 3) {
-                    //success reading a face in v format; proceed accordingly
+                    if (tokens.size() < 4) {
+                        cout << "Invalid face description" << endl;
+                        return -1;
+                    }
+                    const char* vertex1str = tokens[1].c_str();
+                    array<int, 3> vertex1data = {-1, -1, -1};
+                    if (sscanf(vertex1str, "%d/%d/%d", &vertex1data[0], &vertex1data[1], &vertex1data[2]) == 3) {
+                    //success reading a vertex in v/t/n format; proceed accordingly
+                    } else if (sscanf(vertex1str, "%d//%d", &vertex1data[0], &vertex1data[2]) == 2) {
+                    //success reading a vertex in v//n format; proceed accordingly
+                    } else if (sscanf(vertex1str, "%d/%d", &vertex1data[0], &vertex1data[1]) == 2) {
+                    //success reading a vertex in v/t format; proceed accordingly
+                    } else if (sscanf(vertex1str, "%d", &vertex1data[0]) == 1) {
+                    //success reading a vertex in v format; proceed accordingly
                     } else{
                     //error reading face data
                         cout << "Invalid face description" << endl;
                         image_descriptor.close();
                         return -1;
                     }
-                    if (mtlColorFound) face[9] = raycaster.materials.size()-1;
-                    else {
-                        cout << "No color has been defined yet!" << endl;
-                        image_descriptor.close();
-                        return -1;
-                    }
-                    if (textureFound) face[10] = raycaster.textures.size()-1;
 
-                    raycaster.faces.push_back(face);
-                    Vector3 e1 = raycaster.vertices[face[1]].subtractVector(raycaster.vertices[face[0]]);
-                    Vector3 e2 = raycaster.vertices[face[2]].subtractVector(raycaster.vertices[face[0]]);
-                    Vector3 normal = e1.crossProduct(e2);
-                    raycaster.faceInfo.push_back({e1, e2, normal});
+                    for (int i = 2; i < tokens.size() - 1; i++) {
+                        // First 3 for vertices, then normals, then texture coordinates, then 1 id for mtl and 1 id for texture
+                        array<int, 11> face = {vertex1data[0], -1, -1, vertex1data[1], -1, -1, vertex1data[2], -1, -1, -1, -1};
+                        for (int j = 0; j < 2; j++) {
+                            const char* faceline = tokens[i+j].c_str();
+                            if (sscanf(faceline, "%d/%d/%d", &face[1+j], &face[4+j], &face[7+j]) == 3) {
+                            //success reading a vertex in v/t/n format; proceed accordingly
+                            } else if (sscanf(faceline, "%d//%d", &face[1+j], &face[7+j]) == 2) {
+                            //success reading a vertex in v//n format; proceed accordingly
+                            } else if (sscanf(faceline, "%d/%d", &face[1+j], &face[4+j]) == 2) {
+                            //success reading a vertex in v/t format; proceed accordingly
+                            } else if (sscanf(faceline, "%d", &face[1+j]) == 1) {
+                            //success reading a vertex in v format; proceed accordingly
+                            } else{
+                            //error reading face data
+                                cout << "Invalid face description" << endl;
+                                image_descriptor.close();
+                                return -1;
+                            }
+                        }
+                        if (mtlColorFound) face[9] = raycaster.materials.size()-1;
+                        else {
+                            cout << "No color has been defined yet!" << endl;
+                            image_descriptor.close();
+                            return -1;
+                        }
+                        if (textureFound) face[10] = raycaster.textures.size()-1;
+                        //cout << "Face #" << raycaster.faces.size();
+                        //for (int k = 0; k < face.size(); k++) {
+                        //    cout << " " << face[k];
+                        //}
+                        //cout << endl;
+                        raycaster.faces.push_back(face);
+                    }
                 }
 
                 if (keyword.compare("texture") == 0) {
@@ -709,22 +724,28 @@ int main(int argc, char *argv[]){
                     try {
                         texture_file.open(tokens[1]);
                         if (texture_file.is_open()) {
+                            // Create variables
                             vector<vector<Color>> texture;
                             vector<Color> row;
                             vector<string> ppm_tokens;
                             string tex_line;
                             int u = 0, v = 0;
                             int tex_width, tex_height;
+                            // Set initial parameters
                             getline(texture_file, tex_line);
                             ppm_tokens = tokenizer(tex_line);
                             tex_width = stoi(ppm_tokens[1]);
                             tex_height = stoi(ppm_tokens[2]);
                             int color_max = stoi(ppm_tokens[3]);
+                            // Loop through all lines
                             while (getline(texture_file, tex_line)){
+                                // Break line into parts
                                 ppm_tokens = tokenizer(tex_line);
-                                for (int i = 0; i < ppm_tokens.size()-3; i = i + 4) {
+                                // For every 3 numbers, make a color and add it to the row vector - every 4th token is a space, so skip it
+                                for (int i = 0; i < ppm_tokens.size()-3; i = i + 3) {
                                     row.push_back(Color(stof(ppm_tokens[i]) / color_max, stof(ppm_tokens[i+1]) / color_max, stof(ppm_tokens[i+2]) / color_max));
                                     u++;
+                                    // next row!
                                     if (u >= tex_width) {
                                         u = 0;
                                         v++;
@@ -739,6 +760,7 @@ int main(int argc, char *argv[]){
                         }
                     }
                     catch (exception e) {
+                        cout << "Error in reading texture file" << endl;
                         texture_file.close();
                         return -1;
                     }
