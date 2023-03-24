@@ -22,6 +22,8 @@ struct Material {
     float diffusek;
     float speculark;
     float falloff;
+    float alpha;
+    float eta;
 };
 
 struct Light {
@@ -82,12 +84,12 @@ class Raycaster {
         }
 
         // Identify the closest intersection - if any - and return the distance to it and the object ID of the intersecting object
-        rayInfo traceRay(Ray viewRay, int id = -1) {
+        rayInfo traceRay(Ray viewRay, int id = -1, int objType = -1) {
             float t, tt;
             float a = 1.0f;
             float min = MAXFLOAT;
             int minObj = -1;
-            int objType = -1;
+            int intersectObjType = -1;
             float baryx = -1, baryy = -1, baryz = -1;
             // Iterate over all objects
             for(int i = 0; i < spheres.size(); i++) {
@@ -103,7 +105,7 @@ class Raycaster {
                 // Calculate discriminant
                 float discriminant = pow(b, 2) - 4.0f * a * c;
                 // Check if there is an intersection point
-                if (discriminant > 0.01 && i != id) {
+                if (discriminant > 0.01 && (i != id || objType != SPHERE_OBJ_TYPE)) {
                     // More than 1 solution
                     t = (-b + sqrt(discriminant)) / (2 * a);
                     tt = (-b - sqrt(discriminant)) / (2 * a);
@@ -111,16 +113,16 @@ class Raycaster {
                     if (t < min && t > 0) { 
                         min = t;
                         minObj = i;
-                        objType = SPHERE_OBJ_TYPE;
+                        intersectObjType = SPHERE_OBJ_TYPE;
                     }
                 }
-                else if (discriminant < 0.01 && discriminant > -0.01 && i != id) {
+                else if (discriminant < 0.01 && discriminant > -0.01 && (i != id || objType != SPHERE_OBJ_TYPE)) {
                     // Exactly 1 solution
                     t = (-b) / (2 * a);
                     if (t < min && t > 0) { 
                         min = t;
                         minObj = i;
-                        objType = SPHERE_OBJ_TYPE;
+                        intersectObjType = SPHERE_OBJ_TYPE;
                     }
                 }
                 else {}
@@ -145,7 +147,7 @@ class Raycaster {
                     c * viewRay.getOrigin().getVectorZ() + d) / denominator * -1;
                 else t = -1;
                 // Only care about positive distance and new min distances
-                if (t > 0 && t < min) {
+                if (t > 0 && t < min  && (i != id || objType != TRIANGLE_OBJ_TYPE)) {
                     // Find barycentric coordinates
                     Vector3 ep = viewRay.getPoint(t).subtractVector(vertices[faces[i][0]]);                    
                     float d11 = e1.dotProduct(e1);
@@ -164,7 +166,7 @@ class Raycaster {
                     if (beta + lambda < 1 && beta > 0 && lambda > 0 && t != -1) {
                         min = t;
                         minObj = i;
-                        objType = TRIANGLE_OBJ_TYPE;
+                        intersectObjType = TRIANGLE_OBJ_TYPE;
                         baryx = 1-beta-lambda;
                         baryy = beta;
                         baryz = lambda;
@@ -175,7 +177,7 @@ class Raycaster {
 
             if (minObj != -1) {
                 // Closest intersection t distance from point of ray with object # minObj
-                return {{min}, {minObj}, {objType}, {baryx}, {baryy}, {baryz}};
+                return {{min}, {minObj}, {intersectObjType}, {baryx}, {baryy}, {baryz}};
             }
             else {
                 // No intersection, return sentinel values
@@ -290,12 +292,12 @@ class Raycaster {
                 tempIntensity = diffuse.addVector(specular).multiplyComponents(lightColor);
 
                 // Cast shadows from the intersection to the light source
-                rayInfo newRayGossip = traceRay(Ray(intersection, lightDir), objectID);
+                rayInfo newRayGossip = traceRay(Ray(intersection, lightDir), objectID, objType);
                 // If intersection with shadow ray, evaluate for shadow flag
                 bool noShadow = 1;
                 // Avoid self intersections by comparing OG intersecting object with shadow intersecting object
-                if (0.01 < newRayGossip.distance) {
-                    if (newRayGossip.id != objectID) {
+                if (newRayGossip.distance > 0.01) {
+                    if (newRayGossip.id != objectID  || newRayGossip.objType != objType) {
                         // If directional light, if any intersection, there is a shadow
                         if (lights[i].dirflag == 0) noShadow = 0;
                         // If point light, intersection must be within distance from OG intersection to light source
@@ -518,7 +520,9 @@ int main(int argc, char *argv[]){
                         tempx = stof(tokens[1]);
                         tempy = stof(tokens[2]);
                         tempz = stof(tokens[3]);
-                        raycaster.bkgColor = Color(tempx, tempy, tempz);
+                        float eta = 0;
+                        if (tokens.size() > 4) eta = stof(tokens[4]);
+                        raycaster.bkgColor = Color(tempx, tempy, tempz, eta);
                     }
                     catch (exception e){
                         cout << "Invalid color" << endl;
@@ -585,7 +589,8 @@ int main(int argc, char *argv[]){
                     try{
                         Material tempm = {  {Color(stof(tokens[1]), stof(tokens[2]), stof(tokens[3]))},
                                             {Color(stof(tokens[4]), stof(tokens[5]), stof(tokens[6]))},
-                                            {stof(tokens[7])}, {stof(tokens[8])}, {stof(tokens[9])}, {stof(tokens[10])}
+                                            {stof(tokens[7])}, {stof(tokens[8])}, {stof(tokens[9])}, {stof(tokens[10])},
+                                            {stof(tokens[11])}, {stof(tokens[12])}
                                             };
                         raycaster.materials.push_back(tempm);
                     }
