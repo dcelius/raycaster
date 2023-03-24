@@ -794,8 +794,9 @@ int main(int argc, char *argv[]){
     raycaster.ratio = (float) raycaster.width / (float) raycaster.height;
     raycaster.coordWidth = 2.0 * raycaster.d * tan(0.5 * ((raycaster.hfov * M_PI) / 180));
     raycaster.coordHeight = raycaster.coordWidth / raycaster.ratio;
-    raycaster.normal = raycaster.viewDir.getNormalizedVector().scaleVector(raycaster.d);
-    raycaster.normal = raycaster.viewDir.addVector(raycaster.normal);
+    raycaster.normal = raycaster.viewDir.getNormalizedVector();
+    raycaster.normal = raycaster.normal.scaleVector(raycaster.d);
+    raycaster.normal = raycaster.eye.addVector(raycaster.normal);
     raycaster.viewWidth = raycaster.u.scaleVector(raycaster.coordWidth / 2.0f);
     raycaster.viewHeight = raycaster.v.scaleVector(raycaster.coordHeight / 2.0f);
     // Viewing window coordinate calculations
