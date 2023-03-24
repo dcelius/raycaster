@@ -7,19 +7,19 @@ raycaster takes in the filename of an input text file to generate a .ppm file wi
 imsize [width] [height]
 
 ### The camera origin (a 3D point) - required
-eye   [eyex] [eyey] [eyez]
+eye [eyex] [eyey] [eyez]
 
 ### The viewing direction (a 3D vector) - required
-viewdir   [vdirx]  [vdiry]  [vdirz]
+viewdir [vdirx] [vdiry] [vdirz]
 
 ### The 'up' direction (a 3D vector)
-updir   [upx]  [upy]  [upz]
+updir [upx] [upy] [upz]
 
 ### The horizontal field of view (in degrees) - required
-hfov   [fovh]
+hfov [fovh]
 
-### The background color (values from 0-1)
-bkgcolor   [r]  [g]  [b]
+### The background color (values from 0-1) along with an optional refraction index
+bkgcolor [r] [g] [b] [eta]
 
 ### The depth cueing definition (values of *a* must be between 0-1)
 depthcueing [r] [g] [b] [a-max] [a-min] [dist-max] [dist-min]
@@ -30,14 +30,14 @@ light [x] [y] [z] [dirflag] [r] [g] [b]
 ### A definition of a light source that is attenuated (follows the same rules as a light definition with the addition of 3 constant values)
 attlight [x] [y] [z] [dirflag] [r] [g] [b] [c1] [c2] [c3]
 
-### A material definition following Blinn-Phong Illumination model (values from 0-1). All subsequently-defined objects will use the immediately-preceding material color
-mtlcolor   [Odr]  [Odg]  [Odb] [Osr] [Osg] [Osb] [ka] [kd] [ks] [falloff]
+### A material definition following an extended Phong illumination model (values from 0-1). All subsequently-defined objects will use the immediately-preceding material color. 
+mtlcolor [Odr] [Odg] [Odb] [Osr] [Osg] [Osb] [ka] [kd] [ks] [falloff] [alpha] [eta]
 
 ### A texture definition (must be a valid .ppm file)
 texture [tex].ppm
 
 ### A sphere definition (a 3D vector plus the radius)
-sphere   [cx]  [cy]  [cz]  [r]
+sphere [cx] [cy] [cz] [r]
 
 ### A vertex defintion (a 3D point)
 v [x] [y] [z]
@@ -60,4 +60,4 @@ make all
 
 ## Execution
 The program can be run using: <br>
-./raycaster1c [input file]
+./raycaster1d [input file]
